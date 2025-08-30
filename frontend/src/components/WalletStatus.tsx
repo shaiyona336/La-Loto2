@@ -1,4 +1,3 @@
-// src/WalletStatus.tsx
 import { useCurrentAccount, useSuiClient } from "@mysten/dapp-kit";
 import { useQuery } from "@tanstack/react-query";
 
@@ -7,6 +6,8 @@ const mistToSui = (mist: string | number) => Number(mist) / 1_000_000_000;
 export function WalletStatus() {
     const account = useCurrentAccount();
     const suiClient = useSuiClient();
+
+    // This hook fetches the balance for the current account
     const { data: balance, isLoading } = useQuery({
         queryKey: ['balance', account?.address],
         queryFn: async () => {
@@ -14,11 +15,14 @@ export function WalletStatus() {
             const res = await suiClient.getBalance({ owner: account.address });
             return res.totalBalance;
         },
-        enabled: !!account,
-        refetchInterval: 10000,
+        enabled: !!account, // Only run the query if an account is connected
+        refetchInterval: 10000, // Optional: Refetch the balance every 10 seconds
     });
 
-    if (!account) return null;
+    // Don't render anything if the wallet is not connected
+    if (!account) {
+        return null;
+    }
 
     return (
         <div className="bg-gray-800 p-3 rounded-lg text-white text-sm shadow-lg">
