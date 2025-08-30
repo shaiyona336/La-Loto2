@@ -1,32 +1,16 @@
-// src/LotteryView.tsx
-
 import { useSignAndExecuteTransaction, useSuiClient } from "@mysten/dapp-kit";
 import { Transaction } from "@mysten/sui/transactions";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { LOTTERY_ID, PACKAGE_ID } from "./constants";
 
-/**
- * Converts a MIST value (as a string or number) to its SUI equivalent.
- */
 const mistToSui = (mist: number | string): number => {
     return Number(mist) / 1_000_000_000;
 };
 
-/**
- * Represents the nested structure of a Balance<T> object.
- */
-interface Balance {
-    fields: {
-        value: string;
-    };
-}
-
-/**
- * Represents the structure of the `fields` property of our Lottery Move object.
- */
+// CORRECTED: Interface to match the actual flat data structure from the API
 interface LotteryFields {
-    total_pool: Balance;
+    total_pool: string;
 }
 
 export function LotteryView() {
@@ -36,12 +20,7 @@ export function LotteryView() {
 
     const { data, isLoading, error, refetch } = useQuery({
         queryKey: ['lotteryObject', LOTTERY_ID],
-        queryFn: async () => {
-            return suiClient.getObject({
-                id: LOTTERY_ID,
-                options: { showContent: true },
-            });
-        },
+        queryFn: async () => suiClient.getObject({ id: LOTTERY_ID, options: { showContent: true } }),
         refetchInterval: 5000,
     });
 
@@ -74,10 +53,11 @@ export function LotteryView() {
         const tx = new Transaction();
         tx.moveCall({
             target: `${PACKAGE_ID}::no_rake_lotto::draw_winner`,
+            // CORRECTED: Use direct, reliable addresses for system objects
             arguments: [
                 tx.object(LOTTERY_ID),
-                tx.object('0x8'), // Use the correct SDK helper
-                tx.object('0x6'),  // Use the correct SDK helper
+                tx.object('0x8'), // Random object
+                tx.object('0x6'), // Clock object
             ],
         });
         executeTransaction({ transaction: tx }, {
@@ -93,10 +73,13 @@ export function LotteryView() {
         });
     };
 
-    let prizePoolInMist = '0';
+    let prizePool = 0; // Use a number for the prize pool
     if (data?.data?.content?.dataType === 'moveObject') {
         const fields = data.data.content.fields as unknown as LotteryFields;
-        prizePoolInMist = fields?.total_pool?.fields?.value ?? '0';
+        // CORRECTED: Access the total_pool directly and convert to a number
+        if (fields && fields.total_pool) {
+            prizePool = Number(fields.total_pool);
+        }
     }
 
     if (isLoading) return <div>Loading lottery data...</div>;
@@ -132,7 +115,7 @@ export function LotteryView() {
             <div className="text-center w-full py-4 border-y border-gray-600">
                 <p className="text-lg text-gray-300">Current Prize Pool</p>
                 <p className="text-6xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-teal-300">
-                    {mistToSui(prizePoolInMist).toLocaleString()} SUI
+                    {mistToSui(prizePool).toLocaleString()} SUI
                 </p>
             </div>
             <div className="w-full">
