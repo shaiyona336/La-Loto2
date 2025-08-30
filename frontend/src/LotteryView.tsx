@@ -76,8 +76,8 @@ export function LotteryView() {
             target: `${PACKAGE_ID}::no_rake_lotto::draw_winner`,
             arguments: [
                 tx.object(LOTTERY_ID),
-                tx.object.random(), // Use the correct SDK helper
-                tx.object.clock(),  // Use the correct SDK helper
+                tx.object('0x8'), // Use the correct SDK helper
+                tx.object('0x6'),  // Use the correct SDK helper
             ],
         });
         executeTransaction({ transaction: tx }, {

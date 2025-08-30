@@ -1,6 +1,6 @@
 import { ConnectButton } from '@mysten/dapp-kit';
-import { LotteryView } from './LotteryView'; // We will create this next
-import { WalletStatus } from './WalletStatus'; // We will create this next
+import { LotteryView } from './LotteryView';
+import { WalletStatus } from './WalletStatus';
 
 function App() {
   return (
@@ -15,4 +15,5 @@ function App() {
     </div>
   )
 }
+
 export default App;
