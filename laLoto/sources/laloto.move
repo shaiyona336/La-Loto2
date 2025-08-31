@@ -2,7 +2,6 @@
 
 // The module declaration must match the name in your Sui.toml ([addresses] laloto = "0x0")
 module laloto::no_rake_lotto {
-    // --- Imports (Cleaned up to remove all warnings) ---
     use sui::sui::SUI;
     use sui::object::{Self, UID};
     use sui::tx_context::{Self, TxContext};
@@ -12,8 +11,7 @@ module laloto::no_rake_lotto {
     use sui::random::{Self, Random, new_generator};
     use sui::clock::{Self, Clock};
 
-    // --- Structs ---
-    public struct Player has store, drop {
+=    public struct Player has store, drop {
         address: address,
         deposit_amount: u64,
     }
@@ -26,13 +24,12 @@ module laloto::no_rake_lotto {
         last_draw_timestamp: u64,
     }
 
-    // --- Errors & Constants ---
     const E_LOTTERY_IS_EMPTY: u64 = 0;
     const E_TOO_EARLY_TO_DRAW: u64 = 1;
     const SIXTY_SECONDS_MS: u64 = 60_000;
     const FEE_REIMBURSEMENT_MIST: u64 = 5_000_000; // 0.005 SUI
 
-    // --- Functions ---
+
     fun init(ctx: &mut TxContext) {
         let lottery = Lottery {
             id: object::new(ctx),
@@ -55,7 +52,6 @@ module laloto::no_rake_lotto {
         balance::join(&mut lottery.total_pool, deposit_balance);
     }
 
-    // FIX: Changed to simply 'entry fun'. This is the correct syntax for a function
     // that is callable from a transaction but is private to other contracts.
     entry fun draw_winner(lottery: &mut Lottery, random: &Random, clock: &Clock, ctx: &mut TxContext) {
         assert!(
@@ -87,8 +83,7 @@ module laloto::no_rake_lotto {
             current_ticket_boundary = current_ticket_boundary + player.deposit_amount;
             if (winning_number <= current_ticket_boundary) {
                 winner_address = player.address;
-                // FIX: Removed unnecessary semicolon after 'break'
-                break
+=                break
             };
             i = i + 1;
         };
