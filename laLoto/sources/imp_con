@@ -1,10 +1,3 @@
-// /*
-// /// Module: imp_con
-// module imp_con::imp_con;
-// */
-
-// // For Move coding conventions, see
-// // https://docs.sui.io/concepts/sui-move-concepts/conventions
 // module imp_con::no_rake_lotto {
 //     use sui::sui::SUI;
 //     use sui::object::{Self, UID, ID};
@@ -70,7 +63,7 @@
 
 //     // --- FUNCTIONS ---
 
-//     fun init(ctx: &mut TxContext) {
+//     public(package) fun init(ctx: &mut TxContext) {
 //         let lottery = Lottery {
 //             id: object::new(ctx),
 //             current_pool: balance::zero(),
@@ -126,7 +119,7 @@
 //             prize_claimed: false,
 //         };
 
-//         transfer::share_object(receipt);
+//         dynamic_field::add(&mut lottery.id, lottery.current_round, receipt);
 
 //         event::emit(RoundCompleted {
 //             round: lottery.current_round,
