@@ -1,0 +1,168 @@
+// /*
+// /// Module: imp_con
+// module imp_con::imp_con;
+// */
+
+// // For Move coding conventions, see
+// // https://docs.sui.io/concepts/sui-move-concepts/conventions
+// module imp_con::no_rake_lotto {
+//     use sui::sui::SUI;
+//     use sui::object::{Self, UID, ID};
+//     use sui::tx_context::{Self, TxContext};
+//     use sui::coin::{Self, Coin};
+//     use sui::balance::{Self, Balance};
+//     use sui::transfer;
+//     use sui::random::{Self, Random, new_generator};
+//     use sui::clock::{Self, Clock};
+//     use sui::event;
+
+//     // --- Structs ---
+//     public struct Ticket has key, store {
+//         id: UID,
+//         lottery_id: ID,
+//         round: u64,
+//         start_number: u64,
+//         end_number: u64,
+//     }
+
+//     //shared object that holds the results and prize for a completed lottery.
+//     public struct LotteryReceipt has key {
+//         id: UID,
+//         lottery_id: ID,
+//         round: u64,
+//         prize_pool: Balance<SUI>,
+//         winning_number: u64,
+//         prize_claimed: bool,
+//     }
+
+//     //main lottery object (current lottery)
+//     public struct Lottery has key {
+//         id: UID,
+//         current_pool: Balance<SUI>,
+//         current_round: u64,
+//         last_draw_timestamp: u64,
+//         is_open: bool,
+//     }
+
+//     // --- Events ---
+//     public struct RoundCompleted has copy, drop {
+//         round: u64,
+//         winning_number: u64,
+//         prize_pool: u64,
+//     }
+
+//      public struct PrizeClaimed has copy, drop {
+//         winner: address,
+//         prize: u64,
+//         round: u64,
+//     }
+
+//     // --- Errors ---
+//     const E_LOTTERY_IS_EMPTY: u64 = 0;
+//     const E_TOO_EARLY_TO_DRAW: u64 = 1;
+//     const E_LOTTERY_IS_CLOSED: u64 = 2;
+//     const E_NOT_WINNING_TICKET: u64 = 3;
+//     const E_PRIZE_ALREADY_CLAIMED: u64 = 4;
+//     const E_WRONG_LOTTERY_ROUND: u64 = 5;
+
+//     // --- CONSTANTS ---
+//     const SIXTY_SECONDS_MS: u64 = 60_000;
+
+//     // --- FUNCTIONS ---
+
+//     fun init(ctx: &mut TxContext) {
+//         let lottery = Lottery {
+//             id: object::new(ctx),
+//             current_pool: balance::zero(),
+//             current_round: 1,
+//             last_draw_timestamp: 0,
+//             is_open: true,
+//         };
+//         transfer::share_object(lottery);
+//     }
+
+//     //players enter the current active lottery round
+//     public fun enter(lottery: &mut Lottery, ticket_coin: Coin<SUI>, ctx: &mut TxContext) {
+//         assert!(lottery.is_open, E_LOTTERY_IS_CLOSED);
+//         //save the deposit value to determine ticket range
+//         let deposit_value = coin::value(&ticket_coin);
+//         //add the deposit to the pool before reading, solves race condition
+//         let deposit_balance = coin::into_balance(ticket_coin);
+//         balance::join(&mut lottery.current_pool, deposit_balance);
+//         let pool_value_after_join = balance::value(&lottery.current_pool);
+
+//         let ticket = Ticket {
+//             id: object::new(ctx),
+//             lottery_id: object::id(lottery),
+//             round: lottery.current_round,
+//             start_number: pool_value_after_join - deposit_value + 1,
+//             end_number: pool_value_after_join,
+//         };
+//         transfer::transfer(ticket, tx_context::sender(ctx));
+//     }
+
+//     //finish the current lottery and creates a receipt.
+//     entry fun draw_winner(lottery: &mut Lottery, random: &Random, clock: &Clock, ctx: &mut TxContext) {
+//         assert!(
+//             clock::timestamp_ms(clock) >= lottery.last_draw_timestamp + SIXTY_SECONDS_MS,
+//             E_TOO_EARLY_TO_DRAW
+//         );
+//         let total_pool_value = balance::value(&lottery.current_pool);
+//         assert!(total_pool_value > 0, E_LOTTERY_IS_EMPTY);
+//         //use a lock, so either draw_winner->enter->fail, or enter->draw_winner->success, no draw_winner->enter to the same lottery
+//         lottery.is_open = false;
+//         //TODO need to improve random
+//         let mut generator = new_generator(random, ctx);
+//         let winning_number = random::generate_u64_in_range(&mut generator, 1, total_pool_value);
+//         //prize_balance used to move the prize pool to the receipt
+//         let prize_balance = balance::split(&mut lottery.current_pool, total_pool_value);
+
+//         let receipt = LotteryReceipt {
+//             id: object::new(ctx),
+//             lottery_id: object::id(lottery),
+//             round: lottery.current_round,
+//             prize_pool: prize_balance,
+//             winning_number: winning_number,
+//             prize_claimed: false,
+//         };
+
+//         transfer::share_object(receipt);
+
+//         event::emit(RoundCompleted {
+//             round: lottery.current_round,
+//             winning_number: winning_number,
+//             prize_pool: total_pool_value,
+//         });
+
+//         //reset lottery for next round
+//         lottery.current_round = lottery.current_round + 1;
+//         lottery.last_draw_timestamp = clock::timestamp_ms(clock);
+//         lottery.is_open = true;
+//     }
+
+//     //the winner use their ticket to get prize pool from receipt
+//     entry fun claim_prize(receipt: &mut LotteryReceipt, winning_ticket: Ticket, ctx: &mut TxContext) {
+//         assert!(!receipt.prize_claimed, E_PRIZE_ALREADY_CLAIMED);
+//         assert!(winning_ticket.round == receipt.round, E_WRONG_LOTTERY_ROUND);
+//         assert!(
+//             receipt.winning_number >= winning_ticket.start_number &&
+//             receipt.winning_number <= winning_ticket.end_number,
+//             E_NOT_WINNING_TICKET
+//         );
+
+//         let winner_address = tx_context::sender(ctx);
+//         let prize_amount = balance::value(&receipt.prize_pool);
+//         let prize_coin = coin::from_balance(balance::split(&mut receipt.prize_pool, prize_amount), ctx);
+//         transfer::public_transfer(prize_coin, winner_address);
+//         receipt.prize_claimed = true;
+//         event::emit(PrizeClaimed {
+//             winner: winner_address,
+//             prize: prize_amount,
+//             round: receipt.round,
+//         });
+//         //winning ticket destroy after claiming
+//         let Ticket { id, lottery_id: _, round: _, start_number: _, end_number: _ } = winning_ticket;
+//         object::delete(id);
+//     }
+// }
+
