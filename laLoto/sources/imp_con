@@ -1,4 +1,4 @@
-// module imp_con::no_rake_lotto {
+// module final_contract::no_rake_lotto {
 //     use sui::bcs;
 //     use std::hash::{sha2_256};
 //     use sui::balance::{Self, Balance};
@@ -6,6 +6,8 @@
 //     use sui::sui::SUI;
 //     use sui::dynamic_field;
 //     use sui::event;
+//     use sui::clock::{Self, Clock};  // Import Clock
+    
 //     //Structs
 //     //lottery ticket players buy
 //     public struct Ticket has key, store {
@@ -15,6 +17,7 @@
 //         start_number: u64,
 //         end_number: u64,
 //     }
+    
 //     //when lottery ends, create recipt so winning ticket can claim prize
 //     public struct LotteryReceipt has key, store {
 //         id: UID,
@@ -25,6 +28,7 @@
 //         prize_claimed: bool,
 //         was_canceled: bool,
 //     }
+    
 //     //current lottery
 //     public struct Lottery has key {
 //         id: UID,
@@ -35,11 +39,13 @@
 //         randomness_commitment: vector<u8>,
 //         pause: bool,
 //     }
+    
 //     //Events
 //     public struct RoundCompleted has copy, drop { round: u64, winning_number: u64, prize_pool: u64 }
 //     public struct RoundCanceled has copy, drop { round: u64, prize_pool: u64 }
 //     public struct PrizeClaimed has copy, drop { winner: address, prize: u64, round: u64 }
 //     public struct RefundClaimed has copy, drop { player: address, amount: u64, round: u64 }
+    
 //     //Errors
 //     const E_LOTTERY_IS_EMPTY: u64 = 0;
 //     const E_ROUND_NOT_CLOSABLE_YET: u64 = 1;
@@ -53,10 +59,12 @@
 //     const E_ROUND_EXPIRED: u64 = 11;
 //     const E_ROUND_NOT_CANCELLABLE_YET: u64 = 12;
 //     const E_ROUND_NOT_CANCELED: u64 = 13;
+    
 //     //Constants
 //     /// The time admin has to draw a winner before the round can be canceled by anyone.
 //     const LAST_LOTTERY_PERIOD_MS: u64 = 60_000; //minute
 //     const CANCELLATION_PERIOD_MS: u64 = 43_200_000; //12 hours
+    
 //     //Functions
 //     //seperated create_lottery from init to allow test to create lottery
 //     fun create_lottery(ctx: &mut TxContext) {
@@ -83,13 +91,13 @@
 //     entry fun start_round(
 //         lottery: &mut Lottery,
 //         round_commitment: vector<u8>,
-//         current_timestamp: u64,
+//         clock: &Clock,
 //         ctx: &TxContext
 //     ) {
 //         assert!(tx_context::sender(ctx) == lottery.admin, E_NOT_ADMIN);
 //         assert!(lottery.pause == true, E_ROUND_ALREADY_STARTED);
 //         lottery.current_round = lottery.current_round + 1;
-//         lottery.round_start_timestamp = current_timestamp;
+//         lottery.round_start_timestamp = clock::timestamp_ms(clock);  // Get time from Clock
 //         lottery.randomness_commitment = round_commitment;
 //         lottery.pause = false;
 //     }
@@ -117,14 +125,16 @@
 //         secret_number: u64,
 //         secret_salt: vector<u8>,
 //         next_round_commitment: vector<u8>,
-//         current_timestamp: u64,
+//         clock: &Clock,
 //         ctx: &mut TxContext
 //     ) {
 //         assert!(tx_context::sender(ctx) == lottery.admin, E_NOT_ADMIN);
 //         assert!(!lottery.pause, E_ROUND_EXPIRED);
 //         assert!(vector::length(&lottery.randomness_commitment) > 0, E_ROUND_NOT_STARTED);
+        
+//         let current_time = clock::timestamp_ms(clock);
 //         //need enough time between rounds
-//         assert!(current_timestamp >= lottery.round_start_timestamp + LAST_LOTTERY_PERIOD_MS, E_ROUND_NOT_CLOSABLE_YET );
+//         assert!(current_time >= lottery.round_start_timestamp + LAST_LOTTERY_PERIOD_MS, E_ROUND_NOT_CLOSABLE_YET);
 //         //admin reveal secret_number+secret_hash, smart contract verify it is match original hash
 //         let mut secret_bytes = bcs::to_bytes(&secret_number);
 //         vector::append(&mut secret_bytes, secret_salt);
@@ -152,13 +162,21 @@
 //         event::emit(RoundCompleted { round: lottery.current_round, winning_number, prize_pool: total_pool_value });
 //         //reset
 //         lottery.current_round = lottery.current_round + 1;
-//         lottery.round_start_timestamp = current_timestamp;
+//         lottery.round_start_timestamp = current_time;  // Use current time from Clock
 //         lottery.randomness_commitment = next_round_commitment;
 //     }
+    
 //     //in a scenario that the admin gone offline and didnt ended the lottery for a long time, allow players to cancel current lottery for refund
-//     entry fun cancel_round(lottery: &mut Lottery, current_timestamp: u64, ctx: &mut TxContext) {
+//     entry fun cancel_round(
+//         lottery: &mut Lottery, 
+//         clock: &Clock,
+//         ctx: &mut TxContext
+//     ) {
 //         assert!(vector::length(&lottery.randomness_commitment) > 0, E_ROUND_NOT_STARTED);
-//         assert!(current_timestamp >= lottery.round_start_timestamp + CANCELLATION_PERIOD_MS, E_ROUND_NOT_CANCELLABLE_YET);
+        
+//         let current_time = clock::timestamp_ms(clock);
+//         assert!(current_time >= lottery.round_start_timestamp + CANCELLATION_PERIOD_MS, E_ROUND_NOT_CANCELLABLE_YET);
+        
 //         let total_pool_value = balance::value(&lottery.current_pool);
 //         //empty original pool for the refunded pool
 //         let prize_balance = balance::split(&mut lottery.current_pool, total_pool_value);
@@ -213,7 +231,7 @@
 //         let winner_address = tx_context::sender(ctx);
 //         let prize_amount = balance::value(&receipt.prize_pool);
 //         let prize_balance = balance::split(&mut receipt.prize_pool, prize_amount);
-//         let prize_coin = coin::from_balance(prize_balance,ctx);
+//         let prize_coin = coin::from_balance(prize_balance, ctx);
 //         transfer::public_transfer(prize_coin, winner_address);
 //         receipt.prize_claimed = true;
 //         //notify prize claimed
