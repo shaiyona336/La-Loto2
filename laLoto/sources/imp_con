@@ -32,12 +32,17 @@
 //     //current lottery
 //     public struct Lottery has key {
 //         id: UID,
-//         admin: address,
 //         current_pool: Balance<SUI>,
 //         current_round: u64,
 //         round_start_timestamp: u64,
 //         randomness_commitment: vector<u8>,
 //         pause: bool,
+//         admin_commission: u64,
+//     }
+
+//     //object for admin privileges
+//     public struct AdminCap has key, store {
+//         id: UID
 //     }
     
 //     //Events
@@ -52,14 +57,15 @@
 //     const E_NOT_WINNING_TICKET: u64 = 3;
 //     const E_PRIZE_ALREADY_CLAIMED: u64 = 4;
 //     const E_WRONG_LOTTERY_ROUND: u64 = 5;
-//     const E_NOT_ADMIN: u64 = 6;
 //     const E_INVALID_COMMITMENT: u64 = 7;
 //     const E_ROUND_NOT_STARTED: u64 = 9;
 //     const E_ROUND_ALREADY_STARTED: u64 = 10;
 //     const E_ROUND_EXPIRED: u64 = 11;
 //     const E_ROUND_NOT_CANCELLABLE_YET: u64 = 12;
 //     const E_ROUND_NOT_CANCELED: u64 = 13;
-    
+//     const E_POOL_TOO_SMALL_FOR_COMMISSION: u64 = 14;
+//     const E_COMMISSION_NOT_SET: u64 = 15;
+
 //     //Constants
 //     /// The time admin has to draw a winner before the round can be canceled by anyone.
 //     const LAST_LOTTERY_PERIOD_MS: u64 = 60_000; //minute
@@ -68,14 +74,18 @@
 //     //Functions
 //     //seperated create_lottery from init to allow test to create lottery
 //     fun create_lottery(ctx: &mut TxContext) {
+//         //the one that created the lottery has admin privileges
+//         let admin_cap = AdminCap { id: object::new(ctx) };
+//         transfer::transfer(admin_cap, tx_context::sender(ctx));
+//         //create lottery
 //         let lottery = Lottery {
 //             id: object::new(ctx),
-//             admin: tx_context::sender(ctx),
 //             current_pool: balance::zero(),
 //             current_round: 0,
 //             round_start_timestamp: 0,
 //             randomness_commitment: vector[],
 //             pause: true,
+//             admin_commission: 2_000_000, //default 0.002 SUI
 //         };
 //         transfer::share_object(lottery);
 //     }
@@ -89,17 +99,24 @@
 //     }
 
 //     entry fun start_round(
+//         _cap: &AdminCap,
 //         lottery: &mut Lottery,
 //         round_commitment: vector<u8>,
 //         clock: &Clock,
-//         ctx: &TxContext
 //     ) {
-//         assert!(tx_context::sender(ctx) == lottery.admin, E_NOT_ADMIN);
 //         assert!(lottery.pause == true, E_ROUND_ALREADY_STARTED);
 //         lottery.current_round = lottery.current_round + 1;
-//         lottery.round_start_timestamp = clock::timestamp_ms(clock);  // Get time from Clock
+//         lottery.round_start_timestamp = clock::timestamp_ms(clock);
 //         lottery.randomness_commitment = round_commitment;
 //         lottery.pause = false;
+//     }
+
+//     entry fun set_admin_commission(
+//         _cap: &AdminCap,
+//         lottery: &mut Lottery, 
+//         new_commission: u64
+//     ) {
+//         lottery.admin_commission = new_commission;
 //     }
 
 //     public fun enter(lottery: &mut Lottery, ticket_coin: Coin<SUI>, ctx: &mut TxContext) {
@@ -121,6 +138,7 @@
 //     }
 
 //     entry fun draw_winner_and_start_next_round(
+//         _cap: &AdminCap,
 //         lottery: &mut Lottery,
 //         secret_number: u64,
 //         secret_salt: vector<u8>,
@@ -128,7 +146,6 @@
 //         clock: &Clock,
 //         ctx: &mut TxContext
 //     ) {
-//         assert!(tx_context::sender(ctx) == lottery.admin, E_NOT_ADMIN);
 //         assert!(!lottery.pause, E_ROUND_EXPIRED);
 //         assert!(vector::length(&lottery.randomness_commitment) > 0, E_ROUND_NOT_STARTED);
         
@@ -140,13 +157,22 @@
 //         vector::append(&mut secret_bytes, secret_salt);
 //         let revealed_hash = sha2_256(secret_bytes);
 //         assert!(revealed_hash == lottery.randomness_commitment, E_INVALID_COMMITMENT);
-
+//         //check that commision defined and pool big enough to pay it
 //         let total_pool_value = balance::value(&lottery.current_pool);
-//         assert!(total_pool_value > 0, E_LOTTERY_IS_EMPTY);
+//         assert!(lottery.admin_commission > 0, E_COMMISSION_NOT_SET); //commission must be set
+//         assert!(total_pool_value >= lottery.admin_commission * 2, E_POOL_TOO_SMALL_FOR_COMMISSION);
+//         //pay commission to admin running this script
+//         let commission_balance = balance::split(&mut lottery.current_pool, lottery.admin_commission);
+//         let commission_coin = coin::from_balance(commission_balance, ctx);
+//         //sender has admin cap so got to be admin
+//         transfer::public_transfer(commission_coin, tx_context::sender(ctx));
 
-//         let winning_number = (secret_number % total_pool_value) + 1;
+//         let prize_pool_value  = balance::value(&lottery.current_pool);
+//         assert!(prize_pool_value  > 0, E_LOTTERY_IS_EMPTY);
 
-//         let prize_balance = balance::split(&mut lottery.current_pool, total_pool_value);
+//         let winning_number = (secret_number % prize_pool_value ) + 1;
+
+//         let prize_balance = balance::split(&mut lottery.current_pool, prize_pool_value );
 //         let receipt = LotteryReceipt {
 //             id: object::new(ctx),
 //             lottery_id: object::id(lottery),
@@ -159,7 +185,7 @@
 //         //connect receipt to lottery in efficient way
 //         dynamic_field::add(&mut lottery.id, lottery.current_round, receipt);
 //         //notify round ended
-//         event::emit(RoundCompleted { round: lottery.current_round, winning_number, prize_pool: total_pool_value });
+//         event::emit(RoundCompleted { round: lottery.current_round, winning_number, prize_pool: prize_pool_value });
 //         //reset
 //         lottery.current_round = lottery.current_round + 1;
 //         lottery.round_start_timestamp = current_time;  // Use current time from Clock
@@ -251,4 +277,6 @@
 //         let receipt: &LotteryReceipt = dynamic_field::borrow(&lottery.id, round);
 //         receipt.winning_number
 //     }
+//     #[test_only]
+//     public(package) fun get_commission(lottery: &Lottery): u64 { lottery.admin_commission }
 // }
