@@ -38,6 +38,9 @@ module final_contract::no_rake_lotto {
         randomness_commitment: vector<u8>,
         pause: bool,
         admin_commission: u64,
+        ///the time admin has to draw a winner before the round can be canceled by anyone.
+        when_can_end: u64,
+        when_can_cancel: u64,
     }
 
     //object for admin privileges
@@ -66,12 +69,32 @@ module final_contract::no_rake_lotto {
     const E_POOL_TOO_SMALL_FOR_COMMISSION: u64 = 14;
     const E_COMMISSION_NOT_SET: u64 = 15;
 
-    //Constants
-    /// The time admin has to draw a winner before the round can be canceled by anyone.
-    const LAST_LOTTERY_PERIOD_MS: u64 = 60_000; //minute
-    const CANCELLATION_PERIOD_MS: u64 = 43_200_000; //12 hours
-    
     //Functions
+    //functions to potentially set variables in the future
+    entry fun set_admin_commission(
+        _cap: &AdminCap,
+        lottery: &mut Lottery, 
+        new_commission: u64
+    ) {
+        lottery.admin_commission = new_commission;
+    }
+
+    entry fun set_when_can_end(
+        _cap: &AdminCap,
+        lottery: &mut Lottery, 
+        when_can_end: u64
+    ) {
+        lottery.when_can_end = when_can_end;
+    }
+
+    entry fun set_when_can_cancel(
+        _cap: &AdminCap,
+        lottery: &mut Lottery, 
+        when_can_cancel: u64
+    ) {
+        lottery.when_can_cancel = when_can_cancel;
+    }
+    //functions to initialize smart contract
     //seperated create_lottery from init to allow test to create lottery
     fun create_lottery(ctx: &mut TxContext) {
         //the one that created the lottery has admin privileges
@@ -86,6 +109,8 @@ module final_contract::no_rake_lotto {
             randomness_commitment: vector[],
             pause: true,
             admin_commission: 2_000_000, //default 0.002 SUI
+            when_can_end: 60_000, //minute
+            when_can_cancel: 43_200_000 //12 hours
         };
         transfer::share_object(lottery);
     }
@@ -109,14 +134,6 @@ module final_contract::no_rake_lotto {
         lottery.round_start_timestamp = clock::timestamp_ms(clock);
         lottery.randomness_commitment = round_commitment;
         lottery.pause = false;
-    }
-
-    entry fun set_admin_commission(
-        _cap: &AdminCap,
-        lottery: &mut Lottery, 
-        new_commission: u64
-    ) {
-        lottery.admin_commission = new_commission;
     }
 
     public fun enter(lottery: &mut Lottery, ticket_coin: Coin<SUI>, ctx: &mut TxContext) {
@@ -152,7 +169,7 @@ module final_contract::no_rake_lotto {
         
         let current_time = clock::timestamp_ms(clock);
         //need enough time between rounds
-        assert!(current_time >= lottery.round_start_timestamp + LAST_LOTTERY_PERIOD_MS, E_ROUND_NOT_CLOSABLE_YET);
+        assert!(current_time >= lottery.round_start_timestamp + lottery.when_can_end, E_ROUND_NOT_CLOSABLE_YET);
         //admin reveal secret_number+secret_hash, smart contract verify it is match original hash
         let mut secret_bytes = bcs::to_bytes(&secret_number);
         vector::append(&mut secret_bytes, secret_salt);
@@ -231,7 +248,7 @@ module final_contract::no_rake_lotto {
         assert!(vector::length(&lottery.randomness_commitment) > 0, E_ROUND_NOT_STARTED);
         
         let current_time = clock::timestamp_ms(clock);
-        assert!(current_time >= lottery.round_start_timestamp + CANCELLATION_PERIOD_MS, E_ROUND_NOT_CANCELLABLE_YET);
+        assert!(current_time >= lottery.round_start_timestamp + lottery.when_can_cancel, E_ROUND_NOT_CANCELLABLE_YET);
         
         let total_pool_value = balance::value(&lottery.current_pool);
         //empty original pool for the refunded pool
@@ -309,4 +326,15 @@ module final_contract::no_rake_lotto {
     }
     #[test_only]
     public(package) fun get_commission(lottery: &Lottery): u64 { lottery.admin_commission }
+
+     #[test_only]
+    public(package) fun get_when_can_end(lottery: &Lottery): u64 {
+        lottery.when_can_end
+    }
+
+    // NEW: Getter for when_can_cancel
+    #[test_only]
+    public(package) fun get_when_can_cancel(lottery: &Lottery): u64 {
+        lottery.when_can_cancel
+    }
 }

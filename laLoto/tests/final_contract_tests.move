@@ -34,6 +34,8 @@ module final_contract::lottery_tests {
         (lottery, clock, admin_cap)
     }
 
+    
+
     #[test]
     fun test_set_admin_commission() {
         let mut scenario = test_scenario::begin(ADMIN);
@@ -51,6 +53,41 @@ module final_contract::lottery_tests {
         scenario.end();
     }
 
+    #[test]
+    fun test_set_when_can_end() {
+        let mut scenario = test_scenario::begin(ADMIN);
+        let (mut lottery, clock, admin_cap) = setup(&mut scenario);
+        
+        let new_time = 120_000; // 2 minutes
+        test_scenario::next_tx(&mut scenario, ADMIN);
+        no_rake_lotto::set_when_can_end(&admin_cap, &mut lottery, new_time);
+        
+        assert!(no_rake_lotto::get_when_can_end(&lottery) == new_time, 0);
+
+        test_scenario::return_shared(lottery);
+        test_utils::destroy(admin_cap);
+        test_utils::destroy(clock);
+        scenario.end();
+    }
+
+    #[test]
+    fun test_set_when_can_cancel() {
+        let mut scenario = test_scenario::begin(ADMIN);
+        let (mut lottery, clock, admin_cap) = setup(&mut scenario);
+        
+        let new_time = 86_400_000; // 24 hours
+        test_scenario::next_tx(&mut scenario, ADMIN);
+        no_rake_lotto::set_when_can_cancel(&admin_cap, &mut lottery, new_time);
+        
+        assert!(no_rake_lotto::get_when_can_cancel(&lottery) == new_time, 0);
+
+        test_scenario::return_shared(lottery);
+        test_utils::destroy(admin_cap);
+        test_utils::destroy(clock);
+        scenario.end();
+    }
+
+    
     #[test]
     fun test_full_cycle_successful_draw() {
         let mut scenario = test_scenario::begin(ADMIN);
