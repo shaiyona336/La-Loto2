@@ -19,7 +19,7 @@ export function WalletStatus() {
         refetchInterval: 10000, // Optional: Refetch the balance every 10 seconds
     });
 
-    //dont render anything if the wallet is not connected
+    // Don't render anything if the wallet is not connected
     if (!account) {
         return null;
     }
