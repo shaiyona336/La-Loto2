@@ -154,7 +154,6 @@ module final_contract::no_rake_lotto {
         transfer::transfer(ticket, tx_context::sender(ctx));
     }
 
-
     fun draw_winner(
         _cap: &AdminCap,
         lottery: &mut Lottery,
@@ -177,7 +176,6 @@ module final_contract::no_rake_lotto {
         assert!(revealed_hash == lottery.randomness_commitment, E_INVALID_COMMITMENT);
         //check that commision defined and pool big enough to pay it
         let total_pool_value = balance::value(&lottery.current_pool);
-        assert!(lottery.admin_commission > 0, E_COMMISSION_NOT_SET); //commission must be set
         assert!(total_pool_value >= lottery.admin_commission * 2, E_POOL_TOO_SMALL_FOR_COMMISSION);
         //pay commission to admin running this script
         let commission_balance = balance::split(&mut lottery.current_pool, lottery.admin_commission);
@@ -332,7 +330,6 @@ module final_contract::no_rake_lotto {
         lottery.when_can_end
     }
 
-    // NEW: Getter for when_can_cancel
     #[test_only]
     public(package) fun get_when_can_cancel(lottery: &Lottery): u64 {
         lottery.when_can_cancel
