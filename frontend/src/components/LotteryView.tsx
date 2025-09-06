@@ -5,8 +5,9 @@ import { TransactionBlock } from "@mysten/sui.js/transactions";
 import { SuiMoveObject, SuiObjectResponse } from "@mysten/sui.js/client";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { LOTTERY_ID, PACKAGE_ID } from "../constants";
+import { LOTTERY_ID, PACKAGE_ID, ADMIN_CAP_ID } from "../constants";
 
+// Interfaces for our contract's data structures
 interface LotteryFields {
     id: { id: string };
     current_pool: string;
@@ -23,17 +24,16 @@ interface Ticket {
     round: string;
 }
 
-// Helper to convert MIST to SUI
+// Helper functions for SUI/MIST conversion
 const mistToSui = (mist: number | string): number => {
     return Number(mist) / 1_000_000_000;
 };
 
-// Helper to convert SUI to MIST for transactions
 const suiToMist = (sui: number | string): bigint => {
     return BigInt(Number(sui) * 1_000_000_000);
 };
 
-// CORRECTED: This is a "type guard" to safely identify Move objects for tickets.
+// Type guard to ensure we are working with a valid Ticket object
 function isTicketObject(
     obj: SuiObjectResponse
 ): obj is SuiObjectResponse & { data: { content: SuiMoveObject } } {
@@ -41,19 +41,31 @@ function isTicketObject(
 }
 
 export function LotteryView() {
+    // Dapp-kit hooks for interacting with the wallet and network
     const suiClient = useSuiClient();
     const currentAccount = useCurrentAccount();
-    const [suiAmount, setSuiAmount] = useState("0.1");
     const { mutate: executeTransaction, isPending } = useSignAndExecuteTransactionBlock();
+    
+    // Local state for the SUI amount input
+    const [suiAmount, setSuiAmount] = useState("0.1");
 
-    // Query for the main Lottery object
-    const { data: lotteryData } = useQuery({
+    // React Query hook to fetch the main Lottery object data
+    const { data: lotteryData, refetch } = useQuery({
         queryKey: ['lotteryObject', LOTTERY_ID],
         queryFn: async () => suiClient.getObject({ id: LOTTERY_ID, options: { showContent: true } }),
-        refetchInterval: 5000,
+        refetchInterval: 5000, // Refetch every 5 seconds
     });
 
-    // Query for the user's tickets
+    // Parse the fields from the fetched lottery data
+    const lotteryFields = lotteryData?.data?.content?.dataType === 'moveObject'
+        ? (lotteryData.data.content.fields as unknown as LotteryFields)
+        : null;
+
+    const prizePool = lotteryFields ? mistToSui(lotteryFields.current_pool) : 0;
+    const isPaused = lotteryFields?.pause ?? true;
+    const currentRound = lotteryFields?.current_round;
+
+    // React Query hook to fetch ALL of the user's tickets
     const { data: userTickets, refetch: refetchUserTickets } = useQuery({
         queryKey: ['userTickets', LOTTERY_ID, currentAccount?.address],
         queryFn: async (): Promise<Ticket[]> => {
@@ -65,12 +77,11 @@ export function LotteryView() {
                 options: { showContent: true },
             });
 
-            // CORRECTED: Use the type guard in the filter for 100% type safety.
+            // Map all valid ticket objects to our simplified Ticket type
             return ticketObjects.data
-                .filter(isTicketObject) // Using the safe type guard here
+                .filter(isTicketObject)
                 .map(obj => {
-                    // No more "as any" or "!" needed. It's now safe.
-                    const fields = obj.data.content.fields as { round: string }; // We can cast the inner fields for clarity
+                    const fields = obj.data.content.fields as { round: string };
                     return {
                         id: obj.data.objectId,
                         round: fields.round,
@@ -78,77 +89,58 @@ export function LotteryView() {
                 });
         },
         enabled: !!currentAccount,
-        refetchInterval: 10000,
     });
 
-    // Parse data from the main lottery object
-    const lotteryFields = lotteryData?.data?.content?.dataType === 'moveObject'
-        ? (lotteryData.data.content.fields as unknown as LotteryFields)
-        : null;
-
-    const prizePool = lotteryFields ? mistToSui(lotteryFields.current_pool) : 0;
-    const isPaused = lotteryFields?.pause ?? true;
-    const currentRound = lotteryFields?.current_round ?? '0';
-
-    // Logic to buy tickets
+    // Function to handle buying a ticket
     const handleBuySui = () => {
         const amount = parseFloat(suiAmount);
         if (isNaN(amount) || amount <= 0) {
             alert("Please enter a valid SUI amount.");
             return;
         }
-
+        
         const tx = new TransactionBlock();
         const mistAmount = suiToMist(amount);
         const [payment] = tx.splitCoins(tx.gas, [mistAmount]);
-
+        
         tx.moveCall({
             target: `${PACKAGE_ID}::no_rake_lotto::enter`,
             arguments: [tx.object(LOTTERY_ID), payment],
         });
-
+        
         executeTransaction({ transactionBlock: tx }, {
-            onSuccess: (result) => {
-                console.log("Entered lottery! Digest:", result.digest);
-                refetchUserTickets(); // Refetch tickets after successful entry
+            onSuccess: () => {
+                refetch();
+                refetchUserTickets();
                 alert(`Successfully entered with ${amount} SUI!`);
             },
-            onError: (err) => {
-                console.error("Transaction failed:", err);
-                alert(`Error entering lottery: ${err.message}`);
-            },
+            onError: (err) => alert(`Error entering lottery: ${err.message}`),
         });
     };
 
-    // Handler for claiming prize or refund
-    const handleClaim = (claimType: 'prize' | 'refund') => {
-        if (!userTickets || userTickets.length === 0) {
-            alert("You have no tickets to claim with.");
-            return;
-        }
+    // ** THIS IS THE CORRECTED FUNCTION **
+    const handleClaim = (claimType: 'prize' | 'refund', ticketId: string) => {
+        if (!currentAccount) return;
 
-        // For simplicity, we'll use the user's first available ticket.
-        const ticketToClaim = userTickets[0];
         const tx = new TransactionBlock();
-
-        // The PTB needs the actual Ticket object.
-        const [ticketObject] = tx.transferObjects([tx.object(ticketToClaim.id)], tx.pure(currentAccount!.address));
-
+        
+        // We build the moveCall directly, passing the ticketId as an object argument.
+        // The transaction builder correctly handles passing it by value.
         tx.moveCall({
             target: `${PACKAGE_ID}::no_rake_lotto::claim_${claimType}`,
-            arguments: [tx.object(LOTTERY_ID), ticketObject],
+            arguments: [
+                tx.object(LOTTERY_ID),
+                tx.object(ticketId)
+            ],
         });
-
+        
         executeTransaction({ transactionBlock: tx }, {
-            onSuccess: (result) => {
-                console.log(`${claimType} claimed! Digest:`, result.digest);
-                refetchUserTickets(); // Refetch tickets after a claim
+            onSuccess: () => {
+                refetch();
+                refetchUserTickets(); // Refetch tickets after a successful claim to remove the claimed one
                 alert(`Successfully claimed your ${claimType}!`);
             },
-            onError: (err) => {
-                console.error("Claim failed:", err);
-                alert(`Error claiming ${claimType}: ${err.message}`);
-            },
+            onError: (err) => alert(`Error claiming ${claimType}: ${err.message}`),
         });
     };
     
@@ -157,7 +149,7 @@ export function LotteryView() {
         <div className="flex flex-col items-center gap-4 p-6 bg-slate-800 rounded-xl max-w-lg mx-auto">
             <h1 className="text-4xl font-bold text-white">Sui Lottery</h1>
             <div className="text-center">
-                <p className="text-lg text-gray-400">Current Round: {currentRound}</p>
+                <p className="text-lg text-gray-400">Current Round: {currentRound ?? 'Loading...'}</p>
                 <p className="text-3xl font-bold text-purple-400">{prizePool.toLocaleString()} SUI</p>
                 <p className="text-gray-400">in the prize pool</p>
             </div>
@@ -179,7 +171,7 @@ export function LotteryView() {
                     />
                     <button
                         onClick={handleBuySui}
-                        disabled={isPending}
+                        disabled={isPending || !currentAccount}
                         className="w-full py-3 bg-purple-600 text-white font-bold rounded-lg hover:bg-purple-700 disabled:bg-gray-500"
                     >
                         {isPending ? "Processing..." : `Enter with ${suiAmount} SUI`}
@@ -189,23 +181,35 @@ export function LotteryView() {
 
             <div className="w-full border-t border-slate-700 my-4"></div>
 
-            <div className="text-center">
-                <p className="text-gray-400">You have {userTickets?.length ?? 0} tickets for this lottery.</p>
-                <div className="flex gap-4 mt-2">
-                     <button
-                        onClick={() => handleClaim('prize')}
-                        disabled={isPending || !userTickets || userTickets.length === 0}
-                        className="px-6 py-2 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 disabled:bg-gray-500"
-                    >
-                        {isPending ? "..." : "Claim Prize"}
-                    </button>
-                    <button
-                        onClick={() => handleClaim('refund')}
-                        disabled={isPending || !userTickets || userTickets.length === 0}
-                        className="px-6 py-2 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 disabled:bg-gray-500"
-                    >
-                        {isPending ? "..." : "Claim Refund"}
-                    </button>
+            <div className="text-center w-full">
+                <h2 className="text-xl text-white font-semibold">Your Tickets</h2>
+                <p className="text-gray-400">You have {userTickets?.length ?? 0} total tickets.</p>
+                <div className="mt-4 space-y-2 max-h-60 overflow-y-auto">
+                    {userTickets && userTickets.length > 0 ? (
+                        userTickets.map(ticket => (
+                            <div key={ticket.id} className="flex justify-between items-center p-2 bg-slate-700 rounded-lg">
+                                <span className="text-white">Ticket for Round {ticket.round}</span>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={() => handleClaim('prize', ticket.id)}
+                                        disabled={isPending}
+                                        className="px-4 py-1 bg-green-600 text-white text-sm font-bold rounded-lg hover:bg-green-700 disabled:bg-gray-500"
+                                    >
+                                        Claim Prize
+                                    </button>
+                                    <button
+                                        onClick={() => handleClaim('refund', ticket.id)}
+                                        disabled={isPending}
+                                        className="px-4 py-1 bg-red-600 text-white text-sm font-bold rounded-lg hover:bg-red-700 disabled:bg-gray-500"
+                                    >
+                                        Claim Refund
+                                    </button>
+                                </div>
+                            </div>
+                        ))
+                    ) : (
+                        <p className="text-gray-500 mt-4">You don't have any tickets.</p>
+                    )}
                 </div>
             </div>
         </div>
