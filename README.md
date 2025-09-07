@@ -28,9 +28,12 @@ Steps in the future:
 
 
 #using tickets instead of saving how much each player played inside the smart contract makes the project more scalable, Player entering the lottery only involves adding the money to the prize pool and getting a ticket compared to read the data structures of all the players that already pay and write it again.
+
 #Walrus allow to store the frontend and expand him in the future efficiently.
+
 #If I ever choose to upload to mainnet, I can use .eth domain pointing to my walrus frontend, Every .eth domain is an ERC-721 NFT on Ethereum meaning it is very difficult to censor them.
 In addition, opera and brave browsers have ENS supports built in.
+
 #Lottery cannot be closed in one of two conditions:
 1.	Less than a minute have passed before the last Lottery have been finished.
 2.	Not enough money to pay the fee to the one who calls this function.
