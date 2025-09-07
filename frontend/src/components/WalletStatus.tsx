@@ -7,7 +7,7 @@ export function WalletStatus() {
     const account = useCurrentAccount();
     const suiClient = useSuiClient();
 
-    // This hook fetches the balance for the current account
+    //this hook fetches the balance for the current account
     const { data: balance, isLoading } = useQuery({
         queryKey: ['balance', account?.address],
         queryFn: async () => {
@@ -15,11 +15,11 @@ export function WalletStatus() {
             const res = await suiClient.getBalance({ owner: account.address });
             return res.totalBalance;
         },
-        enabled: !!account, // Only run the query if an account is connected
-        refetchInterval: 10000, // Optional: Refetch the balance every 10 seconds
+        enabled: !!account, //only run the query if an account is connected
+        refetchInterval: 10000, //refetch the balance every 10 seconds
     });
 
-    // Don't render anything if the wallet is not connected
+    //dont render anything if the wallet is not connected
     if (!account) {
         return null;
     }

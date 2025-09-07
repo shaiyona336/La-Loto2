@@ -1,21 +1,17 @@
-// src/components/LotteryView.tsx
-
 import { useSignAndExecuteTransactionBlock, useSuiClient } from "@mysten/dapp-kit";
 import { TransactionBlock } from "@mysten/sui.js/transactions";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { LOTTERY_ID, PACKAGE_ID } from "../constants";
 
-/**
- * Converts a MIST value (as a string or number) to its SUI equivalent.
- */
+
+//converts a MIST value (as a string or number) to its sui equivalent
 const mistToSui = (mist: number | string): number => {
     return Number(mist) / 1_000_000_000;
 };
 
-/**
- * Represents the structure of the `fields` property of our Lottery Move object.
- */
+
+//represents the structure of the `fields` property of our lottery move object
 interface LotteryFields {
     total_pool: string;
 }
@@ -210,7 +206,7 @@ export function LotteryView() {
                     )}
                 </button>
             </div>
-
+            
             {/* Info Cards */}
             <div className="grid grid-cols-3 gap-3 w-full mt-4">
                 <div className="bg-slate-800/50 rounded-lg p-3 text-center border border-slate-700/50">

@@ -1,5 +1,5 @@
-// The package ID from when you published your smart contract.
+//package id
 export const PACKAGE_ID = "0xe0f350f8934a925316b1a870160424f8c1c4e8eb3362f719c754e7a6944a428d";
 
-// The ID of the shared Lottery object.
+//lottery id
 export const LOTTERY_ID = "0x0f0c910e3245ede7b6c18b6c5e94f1d4151e3eb0b64b877acde3d39d88e400d2";

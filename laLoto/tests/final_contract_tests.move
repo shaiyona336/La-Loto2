@@ -41,7 +41,7 @@ module final_contract::lottery_tests {
         let mut scenario = test_scenario::begin(ADMIN);
         let (mut lottery, clock, admin_cap) = setup(&mut scenario);
         
-        let new_fee = 500_000_000; // 0.5 SUI
+        let new_fee = 500_000_000; //0.5 sui
         test_scenario::next_tx(&mut scenario, ADMIN);
         no_rake_lotto::set_admin_commission(&admin_cap, &mut lottery, new_fee);
         
@@ -58,7 +58,7 @@ module final_contract::lottery_tests {
         let mut scenario = test_scenario::begin(ADMIN);
         let (mut lottery, clock, admin_cap) = setup(&mut scenario);
         
-        let new_time = 120_000; // 2 minutes
+        let new_time = 120_000; //2 minutes
         test_scenario::next_tx(&mut scenario, ADMIN);
         no_rake_lotto::set_when_can_end(&admin_cap, &mut lottery, new_time);
         
@@ -75,7 +75,7 @@ module final_contract::lottery_tests {
         let mut scenario = test_scenario::begin(ADMIN);
         let (mut lottery, clock, admin_cap) = setup(&mut scenario);
         
-        let new_time = 86_400_000; // 24 hours
+        let new_time = 86_400_000; //24 hours
         test_scenario::next_tx(&mut scenario, ADMIN);
         no_rake_lotto::set_when_can_cancel(&admin_cap, &mut lottery, new_time);
         
@@ -246,58 +246,58 @@ module final_contract::lottery_tests {
     }
 
 
-    /// Tests that a player cannot enter a lottery that is paused (e.g., right after creation).
+    ///tests that a player cannot enter a lottery that is paused (right after creation)
     #[test, expected_failure(abort_code = no_rake_lotto::E_ROUND_NOT_STARTED)]
     fun test_cannot_enter_paused_lottery() {
         let mut scenario = test_scenario::begin(ADMIN);
         let (mut lottery, clock, admin_cap) = setup(&mut scenario);
 
-        // Try to enter immediately, before start_round is called
+        //try to enter immediately, before start_round is called
         test_scenario::next_tx(&mut scenario, ALICE);
         no_rake_lotto::enter(&mut lottery, coin::mint_for_testing<SUI>(1_000_000_000, test_scenario::ctx(&mut scenario)), test_scenario::ctx(&mut scenario));
 
-        // Cleanup
+        //clean
         test_scenario::return_shared(lottery);
         test_utils::destroy(admin_cap);
         test_utils::destroy(clock);
         scenario.end();
     }
 
-    /// Tests that the admin cannot draw a winner if the pool is too small to pay their commission.
+    ///tests that the admin cannot draw a winner if the pool is too small to pay their commission
     #[test, expected_failure(abort_code = no_rake_lotto::E_POOL_TOO_SMALL_FOR_COMMISSION)]
     fun test_draw_fails_if_pool_too_small_for_commission() {
         let mut scenario = test_scenario::begin(ADMIN);
         let (mut lottery, mut clock, admin_cap) = setup(&mut scenario);
 
-        // 1. Admin sets a commission that is larger than the potential prize pool
-        let high_commission = 5_000_000_000; // 5 SUI
+        //1. admin sets a commission that is larger than the potential prize pool
+        let high_commission = 5_000_000_000; //5 sui
         test_scenario::next_tx(&mut scenario, ADMIN);
         no_rake_lotto::set_admin_commission(&admin_cap, &mut lottery, high_commission);
 
-        // 2. Admin starts the round
+        //2. admin starts the round
         clock::set_for_testing(&mut clock, 1000);
         let commitment = calculate_commitment(123, b"salt");
         no_rake_lotto::start_round(&admin_cap, &mut lottery, commitment, &clock);
 
-        // 3. A player enters with an amount smaller than 2x the commission
+        //3. player enters with an amount smaller than 2x the commission
         test_scenario::next_tx(&mut scenario, ALICE);
         no_rake_lotto::enter(&mut lottery, coin::mint_for_testing<SUI>(1_000_000_000, test_scenario::ctx(&mut scenario)), test_scenario::ctx(&mut scenario));
 
-        // 4. Admin tries to draw the winner - this should fail
+        //4. admin tries to draw the winner - this should fail
         clock::increment_for_testing(&mut clock, 60_000);
         test_scenario::next_tx(&mut scenario, ADMIN);
         no_rake_lotto::draw_winner_and_start_next_round(
             &admin_cap, &mut lottery, 123, b"salt", vector[], &clock, test_scenario::ctx(&mut scenario)
         );
         
-        // Cleanup
+        //clean
         test_scenario::return_shared(lottery);
         test_utils::destroy(admin_cap);
         test_utils::destroy(clock);
         scenario.end();
     }
 
-    /// Tests that a player cannot claim a refund for a round that was successfully completed (not canceled).
+    ///tests that a player cannot claim a refund for a round that was successfully completed (not canceled)
     #[test, expected_failure(abort_code = no_rake_lotto::E_ROUND_NOT_CANCELED)]
     fun test_cannot_claim_refund_for_valid_round() {
         let mut scenario = test_scenario::begin(ADMIN);
@@ -307,7 +307,7 @@ module final_contract::lottery_tests {
         let commitment_1 = calculate_commitment(123, b"s1");
         let commitment_2 = calculate_commitment(456, b"s2");
         
-        // Start and play round 1
+        //start and play round 1
         test_scenario::next_tx(&mut scenario, ADMIN);
         no_rake_lotto::start_round(&admin_cap, &mut lottery, commitment_1, &clock);
         test_scenario::next_tx(&mut scenario, ALICE);
@@ -315,32 +315,32 @@ module final_contract::lottery_tests {
         test_scenario::next_tx(&mut scenario, BOB);
         no_rake_lotto::enter(&mut lottery, coin::mint_for_testing<SUI>(2_000_000_000, test_scenario::ctx(&mut scenario)), test_scenario::ctx(&mut scenario));
 
-        // Draw the winner for round 1 successfully
+        //draw the winner for round 1 successfully
         clock::increment_for_testing(&mut clock, 60_000);
         test_scenario::next_tx(&mut scenario, ADMIN);
         no_rake_lotto::draw_winner_and_start_next_round(
             &admin_cap, &mut lottery, 123, b"s1", commitment_2, &clock, test_scenario::ctx(&mut scenario)
         );
 
-        // Now, Bob (a loser from round 1) tries to claim a refund. This should fail.
+        //now bob(a loser from round 1) tries to claim a refund. this should fail
         test_scenario::next_tx(&mut scenario, BOB);
         let bobs_ticket = test_scenario::take_from_sender<Ticket>(&scenario);
         no_rake_lotto::claim_refund(&mut lottery, bobs_ticket, test_scenario::ctx(&mut scenario));
 
-        // Cleanup
+        //cleanup
         test_scenario::return_shared(lottery);
         test_utils::destroy(admin_cap);
         test_utils::destroy(clock);
         scenario.end();
     }
 
-    /// Tests that the contract state resets correctly and works for a second round.
+    ///tests that the contract state resets correctly and works for a second round
     #[test]
     fun test_full_cycle_for_round_two() {
         let mut scenario = test_scenario::begin(ADMIN);
         let (mut lottery, mut clock, admin_cap) = setup(&mut scenario);
 
-        // --- ROUND 1 ---
+        //round 1
         clock::set_for_testing(&mut clock, 1000);
         let secret_1 = 123;
         let salt_1 = b"s1";
@@ -361,8 +361,8 @@ module final_contract::lottery_tests {
         );
         assert!(no_rake_lotto::current_round(&lottery) == 2, 0);
 
-        // --- ROUND 2 ---
-        // The previous call already started round 2 with commitment_2
+        //round 2
+        //the previous call already started round 2 with commitment_2
         test_scenario::next_tx(&mut scenario, CHARLIE);
         no_rake_lotto::enter(&mut lottery, coin::mint_for_testing<SUI>(5_000_000_000, test_scenario::ctx(&mut scenario)), test_scenario::ctx(&mut scenario));
         test_scenario::next_tx(&mut scenario, DANA);
@@ -376,17 +376,17 @@ module final_contract::lottery_tests {
             &admin_cap, &mut lottery, secret_2, salt_2, commitment_3, &clock, test_scenario::ctx(&mut scenario)
         );
         
-        // Check winner of ROUND 2
-        // Total pool was 10000. Winning number = (456 % 10000) + 1 = 457. Charlie's ticket is 1-5000. Charlie wins.
+        //check winner of round 2
+        //total pool was 10000, winning number = (456 % 10000) + 1 = 457. charlie ticket is 1-5000. charlie wins.
         let winner_2_num = no_rake_lotto::get_receipt_winning_number(&lottery, 2);
         assert!(winner_2_num == 457, 2);
 
-        // Charlie claims the prize
+        //charlie claims the prize
         test_scenario::next_tx(&mut scenario, CHARLIE);
         let charlies_ticket = test_scenario::take_from_sender<Ticket>(&scenario);
         no_rake_lotto::claim_prize(&mut lottery, charlies_ticket, test_scenario::ctx(&mut scenario));
 
-        // Cleanup
+        //cleanup
         test_scenario::return_shared(lottery);
         test_utils::destroy(admin_cap);
         test_utils::destroy(clock);
