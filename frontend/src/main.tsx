@@ -4,7 +4,7 @@ import App from './App.tsx'
 import './index.css'
 import '@mysten/dapp-kit/dist/index.css';
 
-import { getFullnodeUrl } from '@mysten/sui/client';
+import { getFullnodeUrl } from '@mysten/sui.js/client';
 import { SuiClientProvider, WalletProvider, createNetworkConfig } from '@mysten/dapp-kit';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
