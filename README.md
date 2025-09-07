@@ -34,6 +34,8 @@ Steps in the future:
 #If I ever choose to upload to mainnet, I can use .eth domain pointing to my walrus frontend, Every .eth domain is an ERC-721 NFT on Ethereum meaning it is very difficult to censor them.
 In addition, opera and brave browsers have ENS supports built in.
 
+#It is possible to add aggregator server that frontend communicates with instead of directly with the smart contract, The aggregator can batch multiple users transactions together. For example, instead of 4 users each paying $1.002 (including commission) for a $1 ticket individually, they can send their signed transactions to the aggregator. The aggregator executes a single transaction on the smart contract, receives any leftover funds, and returns them to the users.
+
 #Lottery cannot be closed in one of two conditions:
 1.	Less than a minute have passed before the last Lottery have been finished.
 2.	Not enough money to pay the fee to the one who calls this function.
