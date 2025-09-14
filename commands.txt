@@ -1,0 +1,7 @@
+commands:
+start_round
+sui client call --package 0x2e56a65c411d035f774306e240ebe52e13d33e2efd4991101734cd884c6864c9 --module no_rake_lotto --function start_round --args 0x252b6a5e133ebb9b06fe0fcdc31817b5881aa333d1974b1e0fcc8cc12d205fc6 0xa14fdee9278a7b8728331d0755792801ee1d243ec6a8a8f1e512d9a1d1d8e7d6 "[41,203,14,8,106,86,175,62,190,39,109,203,192,7,168,241,161,190,7,65,87,173,53,209,175,50,134,77,166,12,156,162]" 0x6 --gas-budget 100000000
+draw_winner_and_start_next_round
+sui client call --package 0x2e56a65c411d035f774306e240ebe52e13d33e2efd4991101734cd884c6864c9 --module no_rake_lotto --function draw_winner_and_start_next_round --args 0x252b6a5e133ebb9b06fe0fcdc31817b5881aa333d1974b1e0fcc8cc12d205fc6 0xa14fdee9278a7b8728331d0755792801ee1d243ec6a8a8f1e512d9a1d1d8e7d6 123 "[1,2,3]" "[0]" 0x6 --gas-budget 100000000
+cancel_round:
+sui client call --package 0x2e56a65c411d035f774306e240ebe52e13d33e2efd4991101734cd884c6864c9 --module no_rake_lotto --function cancel_round --args 0xa14fdee9278a7b8728331d0755792801ee1d243ec6a8a8f1e512d9a1d1d8e7d6  0x6 --gas-budget 100000000
