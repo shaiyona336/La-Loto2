@@ -1,225 +1,213 @@
-import { useSignAndExecuteTransactionBlock, useSuiClient } from "@mysten/dapp-kit";
+// src/components/LotteryView.tsx
+
+import { useSignAndExecuteTransactionBlock, useSuiClient, useCurrentAccount } from "@mysten/dapp-kit";
 import { TransactionBlock } from "@mysten/sui.js/transactions";
+import { SuiMoveObject, SuiObjectResponse } from "@mysten/sui.js/client";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { LOTTERY_ID, PACKAGE_ID } from "../constants";
 
+// Interfaces for our contract's data structures
+interface LotteryFields {
+    id: { id: string };
+    current_pool: string;
+    current_round: string;
+    round_start_timestamp: string;
+    pause: boolean;
+    admin_commission: string;
+    when_can_end: string;
+    when_can_cancel: string;
+}
 
-//converts a MIST value (as a string or number) to its sui equivalent
+interface Ticket {
+    id: string;
+    round: string;
+}
+
+// Helper functions for SUI/MIST conversion
 const mistToSui = (mist: number | string): number => {
     return Number(mist) / 1_000_000_000;
 };
 
+const suiToMist = (sui: number | string): bigint => {
+    return BigInt(Number(sui) * 1_000_000_000);
+};
 
-//represents the structure of the `fields` property of our lottery move object
-interface LotteryFields {
-    total_pool: string;
-}
-
-interface TransactionResult {
-    digest: string;
-    effects?: any;
-    errors?: any[];
+// Type guard to ensure we are working with a valid Ticket object
+function isTicketObject(
+    obj: SuiObjectResponse
+): obj is SuiObjectResponse & { data: { content: SuiMoveObject } } {
+    return obj.data?.content?.dataType === 'moveObject';
 }
 
 export function LotteryView() {
+    // Dapp-kit hooks for interacting with the wallet and network
     const suiClient = useSuiClient();
-    const [betAmount, setBetAmount] = useState("1");
+    const currentAccount = useCurrentAccount();
     const { mutate: executeTransaction, isPending } = useSignAndExecuteTransactionBlock();
+    
+    // Local state for the SUI amount input
+    const [suiAmount, setSuiAmount] = useState("0.1");
 
-    const { data, isLoading, error, refetch } = useQuery({
+    // React Query hook to fetch the main Lottery object data
+    const { data: lotteryData, refetch } = useQuery({
         queryKey: ['lotteryObject', LOTTERY_ID],
-        queryFn: async () => {
-            return suiClient.getObject({
-                id: LOTTERY_ID,
-                options: { showContent: true },
-            });
-        },
-        refetchInterval: 5000,
+        queryFn: async () => suiClient.getObject({ id: LOTTERY_ID, options: { showContent: true } }),
+        refetchInterval: 5000, // Refetch every 5 seconds
     });
 
-    const handleEnterLottery = () => {
-        const tx = new TransactionBlock();
-        const amountInMist = parseFloat(betAmount) * 1_000_000_000;
-        
-        if (isNaN(amountInMist) || amountInMist <= 0) {
-            alert("Please enter a valid, positive amount.");
+    // Parse the fields from the fetched lottery data
+    const lotteryFields = lotteryData?.data?.content?.dataType === 'moveObject'
+        ? (lotteryData.data.content.fields as unknown as LotteryFields)
+        : null;
+
+    const prizePool = lotteryFields ? mistToSui(lotteryFields.current_pool) : 0;
+    const isPaused = lotteryFields?.pause ?? true;
+    const currentRound = lotteryFields?.current_round;
+
+    // React Query hook to fetch ALL of the user's tickets
+    const { data: userTickets, refetch: refetchUserTickets } = useQuery({
+        queryKey: ['userTickets', LOTTERY_ID, currentAccount?.address],
+        queryFn: async (): Promise<Ticket[]> => {
+            if (!currentAccount) return [];
+
+            const ticketObjects = await suiClient.getOwnedObjects({
+                owner: currentAccount.address,
+                filter: { StructType: `${PACKAGE_ID}::no_rake_lotto::Ticket` },
+                options: { showContent: true },
+            });
+
+            // Map all valid ticket objects to our simplified Ticket type
+            return ticketObjects.data
+                .filter(isTicketObject)
+                .map(obj => {
+                    const fields = obj.data.content.fields as { round: string };
+                    return {
+                        id: obj.data.objectId,
+                        round: fields.round,
+                    };
+                });
+        },
+        enabled: !!currentAccount,
+    });
+
+    // Function to handle buying a ticket
+    const handleBuySui = () => {
+        const amount = parseFloat(suiAmount);
+        if (isNaN(amount) || amount <= 0) {
+            alert("Please enter a valid SUI amount.");
             return;
         }
         
-        const [ticket] = tx.splitCoins(tx.gas, [amountInMist]);
+        const tx = new TransactionBlock();
+        const mistAmount = suiToMist(amount);
+        const [payment] = tx.splitCoins(tx.gas, [mistAmount]);
+        
         tx.moveCall({
             target: `${PACKAGE_ID}::no_rake_lotto::enter`,
-            arguments: [tx.object(LOTTERY_ID), ticket],
+            arguments: [tx.object(LOTTERY_ID), payment],
         });
         
-        executeTransaction(
-            { transactionBlock: tx },
-            {
-                onSuccess: (result: TransactionResult) => {
-                    console.log("Transaction successful! Digest:", result.digest);
-                    refetch();
-                    alert(`Successfully entered the lottery with ${betAmount} SUI!`);
-                },
-                onError: (err: Error) => {
-                    console.error("Transaction failed:", err);
-                    alert(`Error entering lottery: ${err.message}`);
-                },
-            }
-        );
+        executeTransaction({ transactionBlock: tx }, {
+            onSuccess: () => {
+                refetch();
+                refetchUserTickets();
+                alert(`Successfully entered with ${amount} SUI!`);
+            },
+            onError: (err) => alert(`Error entering lottery: ${err.message}`),
+        });
     };
 
-    const handleDrawWinner = () => {
+    // Corrected function to handle claiming a prize or refund for a SPECIFIC ticket
+    const handleClaim = (claimType: 'prize' | 'refund', ticketId: string) => {
+        if (!currentAccount) return;
+
         const tx = new TransactionBlock();
+        
         tx.moveCall({
-            target: `${PACKAGE_ID}::no_rake_lotto::draw_winner`,
+            target: `${PACKAGE_ID}::no_rake_lotto::claim_${claimType}`,
             arguments: [
                 tx.object(LOTTERY_ID),
-                tx.object('0x8'),
-                tx.object('0x6'),
+                tx.object(ticketId)
             ],
         });
         
-        executeTransaction(
-            { transactionBlock: tx },
-            {
-                onSuccess: (result: TransactionResult) => {
-                    console.log("Draw successful! Digest:", result.digest);
-                    refetch();
-                    alert("Winner drawn successfully!");
-                },
-                onError: (err: Error) => {
-                    console.error("Draw failed:", err);
-                    alert(`Error drawing winner: ${err.message}`);
-                },
-            }
-        );
+        executeTransaction({ transactionBlock: tx }, {
+            onSuccess: () => {
+                refetch();
+                refetchUserTickets();
+                alert(`Successfully claimed your ${claimType}!`);
+            },
+            onError: (err) => alert(`Error claiming ${claimType}: ${err.message}`),
+        });
     };
-
-    let prizePool = 0;
-    if (data?.data?.content?.dataType === 'moveObject') {
-        const fields = data.data.content.fields as unknown as LotteryFields;
-        if (fields && fields.total_pool) {
-            prizePool = Number(fields.total_pool);
-        }
-    }
-
-    if (isLoading) return (
-        <div className="flex items-center justify-center h-64">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500"></div>
-        </div>
-    );
     
-    if (error) return (
-        <div className="text-red-400 bg-red-900/20 border border-red-500/50 rounded-xl p-4">
-            Error fetching lottery data: {error.message}
-        </div>
-    );
-
+    // UI Rendering
     return (
-        <div className="flex flex-col items-center gap-8 p-10 bg-gradient-to-br from-slate-900 via-purple-900/20 to-slate-900 rounded-3xl shadow-2xl border border-purple-500/20 backdrop-blur-xl w-full max-w-lg">
-            {/* Title with animated gradient */}
-            <div className="relative">
-                <h1 className="text-6xl font-black text-white tracking-tight relative z-10">
-                    La Loto!
-                </h1>
-                <div className="absolute -inset-1 bg-gradient-to-r from-purple-600 to-pink-600 rounded-lg blur-lg opacity-30 animate-pulse"></div>
-                <span className="text-5xl absolute -right-12 -top-2 animate-bounce">🎰</span>
+        <div className="flex flex-col items-center gap-4 p-6 bg-slate-800 rounded-xl max-w-lg mx-auto">
+            <h1 className="text-4xl font-bold text-white">Sui Lottery</h1>
+            <div className="text-center">
+                <p className="text-lg text-gray-400">Current Round: {currentRound ?? 'Loading...'}</p>
+                <p className="text-3xl font-bold text-purple-400">{prizePool.toLocaleString()} SUI</p>
+                <p className="text-gray-400">in the prize pool</p>
             </div>
 
-            {/* Prize Pool Display - HIGH VISIBILITY */}
-            <div className="w-full bg-gradient-to-r from-slate-800/80 to-purple-800/30 rounded-2xl p-6 border border-purple-500/30 shadow-inner relative overflow-hidden">
-                {/* Animated background effect */}
-                <div className="absolute inset-0 bg-gradient-to-r from-yellow-400/10 via-pink-400/10 to-purple-400/10 animate-pulse"></div>
-                
-                <p className="text-sm font-medium text-purple-300 uppercase tracking-wider mb-2 text-center relative z-10">
-                    Current Prize Pool
-                </p>
-                <div className="relative z-10">
-                    <p className="text-5xl font-black text-center bg-gradient-to-r from-yellow-300 via-pink-300 to-purple-300 bg-clip-text text-transparent animate-pulse">
-                        {mistToSui(prizePool).toLocaleString()} SUI
-                    </p>
-                    {/* Extra glow effect for visibility */}
-                    <div className="absolute -inset-2 bg-gradient-to-r from-yellow-400/20 to-purple-400/20 rounded-lg blur-xl"></div>
+            {isPaused ? (
+                <div className="p-4 bg-yellow-900/50 text-yellow-300 rounded-lg">
+                    Lottery is currently paused. Please wait for the admin to start the next round.
                 </div>
-                <p className="text-xs text-gray-400 text-center mt-2 relative z-10">
-                    💎 Winner takes all!
-                </p>
-            </div>
-
-            {/* Betting Section */}
-            <div className="w-full space-y-4">
-                <label htmlFor="bet-amount" className="block text-sm font-medium text-purple-300 uppercase tracking-wide">
-                    Enter Your Bet
-                </label>
-                <div className="flex items-center gap-3">
-                    <div className="relative flex-1">
-                        <input
-                            type="number"
-                            id="bet-amount"
-                            value={betAmount}
-                            onChange={(e) => setBetAmount(e.target.value)}
-                            className="w-full px-4 py-3 text-lg text-white bg-slate-800/80 border-2 border-purple-500/30 rounded-xl focus:border-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-400/20 transition-all duration-300 pr-12"
-                            min="0.1"
-                            step="0.1"
-                            disabled={isPending}
-                            placeholder="Amount"
-                        />
-                        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-purple-400 font-bold">
-                            SUI
-                        </span>
-                    </div>
-                    <button
-                        onClick={handleEnterLottery}
+            ) : (
+                <div className="w-full space-y-2">
+                    <input
+                        type="number"
+                        value={suiAmount}
+                        onChange={(e) => setSuiAmount(e.target.value)}
+                        className="w-full px-4 py-2 text-white bg-slate-700 border border-slate-600 rounded-md"
+                        min="0.01"
+                        step="0.01"
                         disabled={isPending}
-                        className="px-8 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white font-bold rounded-xl hover:from-blue-700 hover:to-purple-700 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed transition-all duration-300 shadow-lg hover:shadow-purple-500/30 transform hover:scale-105 active:scale-95"
+                    />
+                    <button
+                        onClick={handleBuySui}
+                        disabled={isPending || !currentAccount}
+                        className="w-full py-3 bg-purple-600 text-white font-bold rounded-lg hover:bg-purple-700 disabled:bg-gray-500"
                     >
-                        {isPending ? (
-                            <span className="flex items-center gap-2">
-                                <span className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
-                                Entering...
-                            </span>
-                        ) : (
-                            'Enter Lottery 🎲'
-                        )}
+                        {isPending ? "Processing..." : `Enter with ${suiAmount} SUI`}
                     </button>
                 </div>
-            </div>
+            )}
 
-            {/* Draw Winner Button */}
-            <div className="w-full mt-4">
-                <button
-                    onClick={handleDrawWinner}
-                    disabled={isPending}
-                    className="w-full py-4 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-bold text-lg rounded-xl hover:from-green-700 hover:to-emerald-700 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed transition-all duration-300 shadow-lg hover:shadow-green-500/30 transform hover:scale-105 active:scale-95"
-                >
-                    {isPending ? (
-                        <span className="flex items-center justify-center gap-2">
-                            <span className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full"></span>
-                            Drawing Winner...
-                        </span>
+            <div className="w-full border-t border-slate-700 my-4"></div>
+
+            <div className="text-center w-full">
+                <h2 className="text-xl text-white font-semibold">Your Tickets</h2>
+                <p className="text-gray-400">You have {userTickets?.length ?? 0} total tickets.</p>
+                <div className="mt-4 space-y-2 max-h-60 overflow-y-auto">
+                    {userTickets && userTickets.length > 0 ? (
+                        userTickets.map(ticket => (
+                            <div key={ticket.id} className="flex justify-between items-center p-2 bg-slate-700 rounded-lg">
+                                <span className="text-white">Ticket for Round {ticket.round}</span>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={() => handleClaim('prize', ticket.id)}
+                                        disabled={isPending}
+                                        className="px-4 py-1 bg-green-600 text-white text-sm font-bold rounded-lg hover:bg-green-700 disabled:bg-gray-500"
+                                    >
+                                        Claim Prize
+                                    </button>
+                                    <button
+                                        onClick={() => handleClaim('refund', ticket.id)}
+                                        disabled={isPending}
+                                        className="px-4 py-1 bg-red-600 text-white text-sm font-bold rounded-lg hover:bg-red-700 disabled:bg-gray-500"
+                                    >
+                                        Claim Refund
+                                    </button>
+                                </div>
+                            </div>
+                        ))
                     ) : (
-                        <span className="flex items-center justify-center gap-2">
-                            Draw Winner 🏆
-                            <span className="text-xs bg-white/20 px-2 py-1 rounded-full">Admin Only</span>
-                        </span>
+                        <p className="text-gray-500 mt-4">You don't have any tickets.</p>
                     )}
-                </button>
-            </div>
-            
-            {/* Info Cards */}
-            <div className="grid grid-cols-3 gap-3 w-full mt-4">
-                <div className="bg-slate-800/50 rounded-lg p-3 text-center border border-slate-700/50">
-                    <p className="text-2xl mb-1">🎯</p>
-                    <p className="text-xs text-gray-400">Fair Draw</p>
-                </div>
-                <div className="bg-slate-800/50 rounded-lg p-3 text-center border border-slate-700/50">
-                    <p className="text-2xl mb-1">⚡</p>
-                    <p className="text-xs text-gray-400">Instant Win</p>
-                </div>
-                <div className="bg-slate-800/50 rounded-lg p-3 text-center border border-slate-700/50">
-                    <p className="text-2xl mb-1">🔒</p>
-                    <p className="text-xs text-gray-400">Secure</p>
                 </div>
             </div>
         </div>
