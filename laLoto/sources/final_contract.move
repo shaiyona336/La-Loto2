@@ -1,12 +1,12 @@
+#[allow(lint(self_transfer))]
 module final_contract::no_rake_lotto {
-    use sui::bcs;
-    use std::hash::{sha2_256};
     use sui::balance::{Self, Balance};
     use sui::coin::{Self, Coin};
     use sui::sui::SUI;
     use sui::dynamic_field;
     use sui::event;
     use sui::clock::{Self, Clock};  // Import Clock
+    use sui::random::{Self, Random};
     
     //Structs
     //lottery ticket players buy
@@ -35,9 +35,7 @@ module final_contract::no_rake_lotto {
         current_pool: Balance<SUI>,
         current_round: u64,
         round_start_timestamp: u64,
-        randomness_commitment: vector<u8>,
         pause: bool,
-        admin_commission: u64,
         ///the time admin has to draw a winner before the round can be canceled by anyone.
         when_can_end: u64,
         when_can_cancel: u64,
@@ -60,24 +58,15 @@ module final_contract::no_rake_lotto {
     const E_NOT_WINNING_TICKET: u64 = 3;
     const E_PRIZE_ALREADY_CLAIMED: u64 = 4;
     const E_WRONG_LOTTERY_ROUND: u64 = 5;
-    const E_INVALID_COMMITMENT: u64 = 7;
     const E_ROUND_NOT_STARTED: u64 = 9;
     const E_ROUND_ALREADY_STARTED: u64 = 10;
     const E_ROUND_EXPIRED: u64 = 11;
     const E_ROUND_NOT_CANCELLABLE_YET: u64 = 12;
     const E_ROUND_NOT_CANCELED: u64 = 13;
-    const E_POOL_TOO_SMALL_FOR_COMMISSION: u64 = 14;
-    const E_COMMISSION_NOT_SET: u64 = 15;
 
     //Functions
     //functions to potentially set variables in the future
-    entry fun set_admin_commission(
-        _cap: &AdminCap,
-        lottery: &mut Lottery, 
-        new_commission: u64
-    ) {
-        lottery.admin_commission = new_commission;
-    }
+
 
     entry fun set_when_can_end(
         _cap: &AdminCap,
@@ -106,9 +95,7 @@ module final_contract::no_rake_lotto {
             current_pool: balance::zero(),
             current_round: 0,
             round_start_timestamp: 0,
-            randomness_commitment: vector[],
             pause: true,
-            admin_commission: 2_000_000, //default 0.002 SUI
             when_can_end: 60_000, //minute
             when_can_cancel: 43_200_000 //12 hours
         };
@@ -126,13 +113,11 @@ module final_contract::no_rake_lotto {
     entry fun start_round(
         _cap: &AdminCap,
         lottery: &mut Lottery,
-        round_commitment: vector<u8>,
         clock: &Clock,
     ) {
         assert!(lottery.pause == true, E_ROUND_ALREADY_STARTED);
         lottery.current_round = lottery.current_round + 1;
         lottery.round_start_timestamp = clock::timestamp_ms(clock);
-        lottery.randomness_commitment = round_commitment;
         lottery.pause = false;
     }
 
@@ -155,38 +140,22 @@ module final_contract::no_rake_lotto {
     }
 
     fun draw_winner(
-        _cap: &AdminCap,
         lottery: &mut Lottery,
-        secret_number: u64,
-        secret_salt: vector<u8>,
-        next_round_commitment: vector<u8>,
+        r: &Random,
         clock: &Clock,
         ctx: &mut TxContext
     ) {
         assert!(!lottery.pause, E_ROUND_EXPIRED);
-        assert!(vector::length(&lottery.randomness_commitment) > 0, E_ROUND_NOT_STARTED);
         
         let current_time = clock::timestamp_ms(clock);
         //need enough time between rounds
         assert!(current_time >= lottery.round_start_timestamp + lottery.when_can_end, E_ROUND_NOT_CLOSABLE_YET);
-        //admin reveal secret_number+secret_hash, smart contract verify it is match original hash
-        let mut secret_bytes = bcs::to_bytes(&secret_number);
-        vector::append(&mut secret_bytes, secret_salt);
-        let revealed_hash = sha2_256(secret_bytes);
-        assert!(revealed_hash == lottery.randomness_commitment, E_INVALID_COMMITMENT);
-        //check that commision defined and pool big enough to pay it
-        let total_pool_value = balance::value(&lottery.current_pool);
-        assert!(total_pool_value >= lottery.admin_commission * 2, E_POOL_TOO_SMALL_FOR_COMMISSION);
-        //pay commission to admin running this script
-        let commission_balance = balance::split(&mut lottery.current_pool, lottery.admin_commission);
-        let commission_coin = coin::from_balance(commission_balance, ctx);
-        //sender has admin cap so got to be admin
-        transfer::public_transfer(commission_coin, tx_context::sender(ctx));
 
         let prize_pool_value  = balance::value(&lottery.current_pool);
         assert!(prize_pool_value  > 0, E_LOTTERY_IS_EMPTY);
 
-        let winning_number = (secret_number % total_pool_value) + 1;
+        let mut generator = random::new_generator(r, ctx);
+        let winning_number = random::generate_u64_in_range(&mut generator, 1, prize_pool_value + 1);
 
         let prize_balance = balance::split(&mut lottery.current_pool, prize_pool_value );
         let receipt = LotteryReceipt {
@@ -207,34 +176,28 @@ module final_contract::no_rake_lotto {
 
     //allow to stop lottery for maintanance
     entry fun draw_winner_and_close_for_maintanance(
-        _cap: &AdminCap,
         lottery: &mut Lottery,
-        secret_number: u64,
-        secret_salt: vector<u8>,
+        r: &Random,
         clock: &Clock,
         ctx: &mut TxContext
         ) {
-        draw_winner(_cap, lottery, secret_number, secret_salt, vector[], clock, ctx);
+        draw_winner(lottery, r, clock, ctx);
         //reset
         lottery.pause = true;
     }
 
 
     entry fun draw_winner_and_start_next_round(
-        _cap: &AdminCap,
         lottery: &mut Lottery,
-        secret_number: u64,
-        secret_salt: vector<u8>,
-        next_round_commitment: vector<u8>,
+        r: &Random,
         clock: &Clock,
         ctx: &mut TxContext
     ) {
-        draw_winner(_cap, lottery, secret_number, secret_salt, next_round_commitment, clock, ctx);
+        draw_winner(lottery, r, clock, ctx);
         //reset
         let current_time = clock::timestamp_ms(clock);
         lottery.current_round = lottery.current_round + 1;
         lottery.round_start_timestamp = current_time;
-        lottery.randomness_commitment = next_round_commitment;
     }
     
     //in a scenario that the admin gone offline and didnt ended the lottery for a long time, allow players to cancel current lottery for refund
@@ -243,7 +206,7 @@ module final_contract::no_rake_lotto {
         clock: &Clock,
         ctx: &mut TxContext
     ) {
-        assert!(vector::length(&lottery.randomness_commitment) > 0, E_ROUND_NOT_STARTED);
+        assert!(lottery.round_start_timestamp != 0, E_ROUND_NOT_STARTED);
         
         let current_time = clock::timestamp_ms(clock);
         assert!(current_time >= lottery.round_start_timestamp + lottery.when_can_cancel, E_ROUND_NOT_CANCELLABLE_YET);
@@ -266,7 +229,6 @@ module final_contract::no_rake_lotto {
         event::emit(RoundCanceled { round: lottery.current_round, prize_pool: total_pool_value });
         //reset
         lottery.round_start_timestamp = 0;
-        lottery.randomness_commitment = vector[];
         lottery.pause = true;
     }
     
@@ -322,8 +284,6 @@ module final_contract::no_rake_lotto {
         let receipt: &LotteryReceipt = dynamic_field::borrow(&lottery.id, round);
         receipt.winning_number
     }
-    #[test_only]
-    public(package) fun get_commission(lottery: &Lottery): u64 { lottery.admin_commission }
 
      #[test_only]
     public(package) fun get_when_can_end(lottery: &Lottery): u64 {
