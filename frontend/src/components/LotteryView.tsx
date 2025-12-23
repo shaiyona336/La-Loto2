@@ -7,6 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { LOTTERY_ID, PACKAGE_ID } from "../constants";
 import { LotteryHistory } from "./LotteryHistory";
+import { AdminPanel } from "./AdminPanel";
 
 // Interfaces for our contract's data structures
 interface LotteryFields {
@@ -73,6 +74,8 @@ export function LotteryView() {
     // Check if round can be closed
     const now = Date.now();
     const canClose = !isPaused && (now >= roundStartTime + roundDuration);
+    const roundCancelTime = lotteryFields ? Number(lotteryFields.when_can_cancel) : 0;
+    const canCancel = !isPaused && (now >= roundStartTime + roundCancelTime);
 
     // React Query hook to fetch ALL of the user's tickets
     const { data: userTickets, refetch: refetchUserTickets } = useQuery({
@@ -151,6 +154,28 @@ export function LotteryView() {
         });
     };
 
+    // Cancel the round (Permissionless)
+    const handleCancelRound = () => {
+        if (!confirm("Are you sure you want to cancel this round? This will trigger refunds.")) return;
+        const tx = new TransactionBlock();
+        tx.moveCall({
+            target: `${PACKAGE_ID}::no_rake_lotto::cancel_round`,
+            arguments: [
+                tx.object(LOTTERY_ID),
+                tx.object('0x6') // Clock Object
+            ],
+        });
+
+        executeTransaction({ transactionBlock: tx }, {
+            onSuccess: () => {
+                refetch();
+                refetchUserTickets();
+                alert(`Round cancelled! Refunds enabled.`);
+            },
+            onError: (err) => alert(`Error cancelling round: ${err.message}`),
+        });
+    };
+
     // UI Rendering
     return (
         <div className="flex flex-col items-center gap-8 p-6 bg-slate-800 rounded-xl w-full max-w-4xl mx-auto min-h-[80vh]">
@@ -213,6 +238,21 @@ export function LotteryView() {
                                     Round ending in: {Math.max(0, Math.floor(((roundStartTime + roundDuration) - now) / 1000))}s
                                 </p>
                             )}
+
+                            {/* Cancel Round Button */}
+                            {canCancel ? (
+                                <button
+                                    onClick={handleCancelRound}
+                                    disabled={isPending}
+                                    className="w-full mt-4 py-3 bg-red-600/20 text-red-300 border border-red-500/50 hover:bg-red-600/40 rounded-lg transition-colors font-mono text-sm uppercase tracking-widest"
+                                >
+                                    Cancel Round & Refund
+                                </button>
+                            ) : (
+                                <p className="text-center text-xs text-gray-500 font-mono mt-2">
+                                    Can cancel in: {Math.max(0, Math.floor(((roundStartTime + roundCancelTime) - now) / 1000))}s
+                                </p>
+                            )}
                         </div>
                     )}
                 </div>
@@ -226,6 +266,14 @@ export function LotteryView() {
                     refetch();
                     refetchUserTickets();
                 }}
+            />
+
+            {/* Admin Panel (Only visible to admin) */}
+            <AdminPanel
+                lotteryId={LOTTERY_ID}
+                currentEndDuration={roundDuration}
+                currentCancelDuration={lotteryFields ? Number(lotteryFields.when_can_cancel) : 0}
+                onUpdate={refetch}
             />
         </div>
     );

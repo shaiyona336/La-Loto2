@@ -85,8 +85,7 @@ module final_contract::lottery_tests {
 
         clock::set_for_testing(&mut clock, 1000);
         
-        test_scenario::next_tx(&mut scenario, ADMIN);
-        no_rake_lotto::start_round(&admin_cap, &mut lottery, &clock);
+
         assert!(no_rake_lotto::current_round(&lottery) == 1, 0);
 
         test_scenario::next_tx(&mut scenario, ALICE);
@@ -133,8 +132,7 @@ module final_contract::lottery_tests {
 
         clock::set_for_testing(&mut clock, 1000);
         
-        test_scenario::next_tx(&mut scenario, ADMIN);
-        no_rake_lotto::start_round(&admin_cap, &mut lottery, &clock);
+
 
         clock::increment_for_testing(&mut clock, 30_000); 
         
@@ -157,8 +155,7 @@ module final_contract::lottery_tests {
 
         clock::set_for_testing(&mut clock, 1000);
 
-        test_scenario::next_tx(&mut scenario, ADMIN);
-        no_rake_lotto::start_round(&admin_cap, &mut lottery, &clock);
+
 
         clock::increment_for_testing(&mut clock, CANCELLATION_PERIOD_MS);
         
@@ -191,8 +188,7 @@ module final_contract::lottery_tests {
 
         clock::set_for_testing(&mut clock, 1000);
 
-        test_scenario::next_tx(&mut scenario, ADMIN);
-        no_rake_lotto::start_round(&admin_cap, &mut lottery, &clock);
+
 
         test_scenario::next_tx(&mut scenario, ALICE);
         no_rake_lotto::enter(&mut lottery, coin::mint_for_testing<SUI>(1_000_000_000, test_scenario::ctx(&mut scenario)), test_scenario::ctx(&mut scenario));
@@ -230,10 +226,9 @@ module final_contract::lottery_tests {
 
         clock::set_for_testing(&mut clock, 1000);
 
-        test_scenario::next_tx(&mut scenario, ADMIN);
-        no_rake_lotto::start_round(&admin_cap, &mut lottery, &clock);
 
-        clock::increment_for_testing(&mut clock, CANCELLATION_PERIOD_MS - 1000);
+
+        clock::increment_for_testing(&mut clock, CANCELLATION_PERIOD_MS - 2000);
         
         test_scenario::next_tx(&mut scenario, CHARLIE);
         no_rake_lotto::cancel_round(&mut lottery, &clock, test_scenario::ctx(&mut scenario));
@@ -247,22 +242,8 @@ module final_contract::lottery_tests {
 
 
     ///tests that a player cannot enter a lottery that is paused (right after creation)
-    #[test, expected_failure(abort_code = no_rake_lotto::E_ROUND_NOT_STARTED)]
-    fun test_cannot_enter_paused_lottery() {
-        let mut scenario = test_scenario::begin(ADMIN);
-        let (mut lottery, clock, admin_cap, r) = setup(&mut scenario);
 
-        //try to enter immediately, before start_round is called
-        test_scenario::next_tx(&mut scenario, ALICE);
-        no_rake_lotto::enter(&mut lottery, coin::mint_for_testing<SUI>(1_000_000_000, test_scenario::ctx(&mut scenario)), test_scenario::ctx(&mut scenario));
 
-        //clean
-        test_scenario::return_shared(lottery);
-        test_utils::destroy(admin_cap);
-        test_utils::destroy(clock);
-        test_scenario::return_shared(r);
-        scenario.end();
-    }
 
     ///tests that the admin cannot draw a winner if the pool is too small to pay their commission
 
@@ -276,8 +257,7 @@ module final_contract::lottery_tests {
         clock::set_for_testing(&mut clock, 1000);
         
         //start and play round 1
-        test_scenario::next_tx(&mut scenario, ADMIN);
-        no_rake_lotto::start_round(&admin_cap, &mut lottery, &clock);
+
         test_scenario::next_tx(&mut scenario, ALICE);
         no_rake_lotto::enter(&mut lottery, coin::mint_for_testing<SUI>(1_000_000_000, test_scenario::ctx(&mut scenario)), test_scenario::ctx(&mut scenario));
         test_scenario::next_tx(&mut scenario, BOB);
@@ -319,8 +299,7 @@ module final_contract::lottery_tests {
         //round 1
         clock::set_for_testing(&mut clock, 1000);
         
-        test_scenario::next_tx(&mut scenario, ADMIN);
-        no_rake_lotto::start_round(&admin_cap, &mut lottery, &clock);
+
         test_scenario::next_tx(&mut scenario, ALICE);
         no_rake_lotto::enter(&mut lottery, coin::mint_for_testing<SUI>(1_000_000_000, test_scenario::ctx(&mut scenario)), test_scenario::ctx(&mut scenario));
         

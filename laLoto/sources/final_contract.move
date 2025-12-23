@@ -93,9 +93,9 @@ module final_contract::no_rake_lotto {
         let lottery = Lottery {
             id: object::new(ctx),
             current_pool: balance::zero(),
-            current_round: 0,
+            current_round: 1,
             round_start_timestamp: 0,
-            pause: true,
+            pause: false,
             when_can_end: 60_000, //minute
             when_can_cancel: 43_200_000 //12 hours
         };
@@ -206,7 +206,7 @@ module final_contract::no_rake_lotto {
         clock: &Clock,
         ctx: &mut TxContext
     ) {
-        assert!(lottery.round_start_timestamp != 0, E_ROUND_NOT_STARTED);
+        assert!(!lottery.pause, E_ROUND_NOT_STARTED);
         
         let current_time = clock::timestamp_ms(clock);
         assert!(current_time >= lottery.round_start_timestamp + lottery.when_can_cancel, E_ROUND_NOT_CANCELLABLE_YET);
