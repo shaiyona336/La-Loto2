@@ -1,5 +1,5 @@
 //package id
-export const PACKAGE_ID = "0x2e56a65c411d035f774306e240ebe52e13d33e2efd4991101734cd884c6864c9";
+export const PACKAGE_ID = "0x8c7964adb62309885960a98959e8acae0d3deb3b68537e19379c83dcae5572af";
 
 //lottery id
-export const LOTTERY_ID = "0xa14fdee9278a7b8728331d0755792801ee1d243ec6a8a8f1e512d9a1d1d8e7d6";
+export const LOTTERY_ID = "0xcd4a320c3ead5a7cb2b20446e3326ef778bfd0ca4247286ec7b7b389a98402aa";
